@@ -93,6 +93,7 @@ sources = [
 	'src/output.c',
 	'src/output-management.c',
 	'src/pointer.c',
+	'src/touch.c',
 	'src/keyboard.c',
 	'src/seat.c',
 	'src/cfg.c',
