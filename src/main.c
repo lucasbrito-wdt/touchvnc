@@ -44,6 +44,7 @@
 #include "output.h"
 #include "output-management.h"
 #include "pointer.h"
+#include "touch.h"
 #include "keyboard.h"
 #include "seat.h"
 #include "cfg.h"
@@ -169,6 +170,7 @@ struct wayvnc_client {
 
 	unsigned id;
 	struct pointer pointer;
+	struct touch touch;
 	struct keyboard keyboard;
 	struct data_control data_control;
 };
@@ -185,6 +187,7 @@ void switch_to_next_output(struct wayvnc*);
 void switch_to_prev_output(struct wayvnc*);
 static void client_init_seat(struct wayvnc_client* self);
 static void client_init_pointer(struct wayvnc_client* self);
+static void client_init_touch(struct wayvnc_client* self);
 static void client_init_keyboard(struct wayvnc_client* self);
 static void client_init_data_control(struct wayvnc_client* self);
 static void client_detach_wayland(struct wayvnc_client* self);
@@ -628,6 +631,18 @@ static void on_pointer_event(struct nvnc_client* client, double x, double y,
 	wv_output_transform_canvas_point(transform, &xf.x, &xf.y);
 
 	pointer_set(&wv_client->pointer, xf.x, xf.y, button_mask);
+}
+
+static void on_touch_event(struct nvnc_client* client,
+			   const struct nvnc_touch_slot* slots,
+			   uint8_t count)
+{
+	struct wayvnc_client* wv_client = nvnc_get_userdata(client);
+
+	if (!wv_client->touch.initialized)
+		return;
+
+	touch_event(&wv_client->touch, slots, count);
 }
 
 static void on_key_event(struct nvnc_client* client, uint32_t symbol,
@@ -1139,6 +1154,7 @@ static int init_nvnc(struct wayvnc* self)
 	}
 
 	nvnc_set_normalised_pointer_fn(self->nvnc, on_pointer_event);
+	nvnc_set_touch_fn(self->nvnc, on_touch_event);
 
 	nvnc_set_key_fn(self->nvnc, on_key_event);
 	nvnc_set_key_code_fn(self->nvnc, on_key_code_event);
@@ -1490,6 +1506,7 @@ static void client_init_wayland(struct wayvnc_client* self)
 	client_init_seat(self);
 	client_init_keyboard(self);
 	client_init_pointer(self);
+	client_init_touch(self);
 	client_init_data_control(self);
 }
 
@@ -1504,6 +1521,8 @@ static void client_detach_wayland(struct wayvnc_client* self)
 	if (self->pointer.pointer)
 		pointer_destroy(&self->pointer);
 	self->pointer.pointer = NULL;
+
+	touch_destroy(&self->touch);
 
 	if (self->data_control.wlr_manager || self->data_control.ext_manager)
 		data_control_destroy(&self->data_control);
@@ -1585,6 +1604,8 @@ static void client_destroy(void* obj)
 
 	if (self->pointer.pointer)
 		pointer_destroy(&self->pointer);
+
+	touch_destroy(&self->touch);
 
 	if (self->data_control.wlr_manager || self->data_control.ext_manager)
 		data_control_destroy(&self->data_control);
@@ -1679,6 +1700,22 @@ static void client_init_pointer(struct wayvnc_client* self)
 		configure_cursor_sc(wayvnc, self);
 		if (wayvnc->cursor_sc)
 			screencopy_start(wayvnc->cursor_sc, true);
+	}
+}
+
+static void client_init_touch(struct wayvnc_client* self)
+{
+	struct wayvnc* wayvnc = self->server;
+
+	int width = 0, height = 0;
+	if (!image_source_get_dimensions(wayvnc->image_source, &width, &height))
+		return;
+
+	if (width <= 0 || height <= 0)
+		return;
+
+	if (touch_init(&self->touch, width, height) < 0) {
+		nvnc_log(NVNC_LOG_DEBUG, "Failed to initialise touch device");
 	}
 }
 
